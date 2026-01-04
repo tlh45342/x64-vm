@@ -1,0 +1,7 @@
+# push_basic.script
+load push_basic.bin 0000:1000
+set cs 0000
+set ip 1000
+step 50
+regs
+quit

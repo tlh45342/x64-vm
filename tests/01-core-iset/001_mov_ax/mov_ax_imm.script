@@ -1,0 +1,9 @@
+logfile mov_ax_imm.log
+set cpu debug=all
+version
+load mov_sx_imm.bin 0000:1000
+set CS 0
+set IP 1000
+regs
+run
+regs

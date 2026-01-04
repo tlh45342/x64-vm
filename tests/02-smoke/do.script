@@ -1,0 +1,11 @@
+# tests/02-smoke/vm.do
+# simple deterministic smoke run
+
+# (whatever your REPL commands already are)
+# examples:
+load tests/02-smoke/hdd.img
+set mem 256
+regs
+step 50
+regs
+quit

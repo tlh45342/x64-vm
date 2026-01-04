@@ -1,0 +1,11 @@
+bits 16
+org 0x1000
+    mov ax, 0x1111
+    mov cx, 0x2222
+    mov dx, 0x3333
+    mov bx, 0x4444
+    mov sp, 0x5555
+    mov bp, 0x6666
+    mov si, 0x7777
+    mov di, 0x8888
+    hlt
