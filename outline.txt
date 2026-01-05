@@ -1,11 +1,12 @@
 
-src/cpu/execute.c
+src/main.c
 
+src/vm.c
+
+src/cpu/execute.c
 
 src/cpu/cpu.c
 
-
 src/cpu/table.c
-
 
 src/cpu/logic.c

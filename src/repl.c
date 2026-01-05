@@ -1,3 +1,19 @@
+/*
+ * Copyright 2025 Thomas L Hamilton
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+ 
 // src/repl.c
 
 #include <stdio.h>
@@ -5,26 +21,49 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdarg.h>
+#include <stdint.h>
+#include <stdbool.h>
 
 #include "repl.h"
-#include "x64_cpu.h"
 #include "version.h"
+#include "cpu/cpu.h"
+
+#include "vm.h"
+
+static VMManager g_vmman;
 
 typedef struct repl_state {
-    x86_cpu_t cpu;
-    uint8_t *mem;
-    size_t mem_size;
+    VMManager *vmman;
 
     char img_path[512];
     uint32_t default_max_steps;
 
     bool trace;      // if true, log each step (CS:IP opcode)
     FILE *log;       // may be NULL
+} repl_state_t;   // may be NULL
 } repl_state_t;
+
+static VM *cur_vm(repl_state_t *s) {
+    return vm_current(s->vmman);
+}
+
+// Compatibility mode: if no VM exists yet, auto-create one using defaults.
+// This preserves your existing scripts that don’t mention "vm create".
+static VM *ensure_vm(repl_state_t *s) {
+    VM *v = cur_vm(s);
+    if (v) return v;
+
+    // Default: 128MB, name "default"
+    int id = vm_create_default(s->vmman, 128u * 1024u * 1024u, "default");
+    if (id < 0) {
+        fprintf(stderr, "error: failed to auto-create default VM\n");
+        return NULL;
+    }
+    return cur_vm(s);
+}
 
 
 static void logf_repl(repl_state_t *s, const char *fmt, ...) __attribute__((unused));
-
 
 static void trim_right(char *s) {
     size_t n = strlen(s);
@@ -237,9 +276,9 @@ static int parse_seg_off_hex(const char *s, uint16_t *seg, uint16_t *off) {
     return 1;
 }
 
-static void dump_bytes(x86_cpu_t *cpu, uint16_t seg, uint16_t off, unsigned count) {
+static void dump_bytes_vm(VM *vm, uint16_t seg, uint16_t off, unsigned count) {
     if (count == 0) count = 16;
-    if (count > 256) count = 256; // keep it reasonable
+    if (count > 256) count = 256;
 
     uint32_t lin = x86_linear_addr(seg, off);
 
@@ -247,15 +286,11 @@ static void dump_bytes(x86_cpu_t *cpu, uint16_t seg, uint16_t off, unsigned coun
 
     for (unsigned i = 0; i < count; i++) {
         uint32_t a = lin + i;
-        if (a >= cpu->mem_size) {
-            printf("?? ");
-        } else {
-            printf("%02x ", cpu->mem[a]);
-        }
+        if (a >= vm->mem_size) printf("?? ");
+        else printf("%02x ", vm->mem[a]);
     }
     printf("\n");
 }
-
 
 static void reset_cpu(repl_state_t *s, uint16_t cs, uint16_t ip) {
     // keep memory as-is; reset registers/flags
@@ -363,11 +398,37 @@ static int set_logfile(repl_state_t *s, const char *path) {
     return 0;
 }
 
-static int regs_to_string(const repl_state_t *s, char *buf, size_t cap)
+static x86_status_t step_one_vm(repl_state_t *s, VM *vm) {
+    if (s->trace && s->log) {
+        uint32_t lin = x86_linear_addr(vm->cpu.cs, vm->cpu.ip);
+        uint8_t op = 0x00;
+        if (lin < vm->mem_size) op = vm->mem[lin];
+        fprintf(s->log, "%04x:%04x  %02x\n", vm->cpu.cs, vm->cpu.ip, op);
+        fflush(s->log);
+    }
+    return x86_step(&vm->cpu);
+}
+
+static int run_steps_vm(repl_state_t *s, VM *vm, uint32_t max_steps) {
+    x86_status_t st = X86_OK;
+    for (uint32_t i = 0; i < max_steps; i++) {
+        st = step_one_vm(s, vm);
+        if (st == X86_HALT || st == X86_ERR) break;
+    }
+
+    printf("HALT=%d ERR=%d AX=%04x BX=%04x CX=%04x DX=%04x CS:IP=%04x:%04x\n",
+           vm->cpu.halted ? 1 : 0,
+           (st == X86_ERR) ? 1 : 0,
+           vm->cpu.ax, vm->cpu.bx, vm->cpu.cx, vm->cpu.dx,
+           vm->cpu.cs, vm->cpu.ip);
+
+    return (st == X86_ERR) ? 1 : 0;
+}
+
+
+static int regs_to_string_vm(const VM *vm, char *buf, size_t cap)
 {
-    // Return number of chars written (like snprintf). Clamp to cap.
-    // Adjust fields to match your actual cpu struct layout.
-    const x86_cpu_t *c = &s->cpu;
+    const x86_cpu_t *c = &vm->cpu;
 
     return snprintf(buf, cap,
         "AX=%04X BX=%04X CX=%04X DX=%04X  SI=%04X DI=%04X BP=%04X SP=%04X\n"
@@ -379,8 +440,7 @@ static int regs_to_string(const repl_state_t *s, char *buf, size_t cap)
     );
 }
 
-
-static int exec_line(repl_state_t *s, const char *line_in, int depth) {
+int exec_line(repl_state_t *s, const char *line_in, int depth) {
     (void)depth;
 
     char line[1024];
@@ -392,6 +452,57 @@ static int exec_line(repl_state_t *s, const char *line_in, int depth) {
     if (argc == 0) return 0;
 
     const char *cmd = argv[0];
+
+if (!strcmp(cmd, "set")) {
+    // set cpu debug=all|on|off
+    if (argc >= 3 && !strcmp(argv[1], "cpu")) {
+        if (!strcmp(argv[2], "debug=all") || !strcmp(argv[2], "debug=on")) { s->trace = true; return 0; }
+        if (!strcmp(argv[2], "debug=off")) { s->trace = false; return 0; }
+        fprintf(stderr, "usage: set cpu debug=all|on|off\n");
+        return 1;
+    }
+
+    // set <reg> <value>  OR set reg=value
+    if (argc < 3) {
+        fprintf(stderr, "usage: set <cs|ip|ds|es|ss|sp> <value>\n");
+        fprintf(stderr, "   or: set <name>=<value>\n");
+        return 1;
+    }
+
+    VM *vm = ensure_vm(s);
+    if (!vm) return 1;
+
+    const char *name = argv[1];
+    const char *valstr = argv[2];
+
+    const char *eq = strchr(name, '=');
+    char namebuf[32];
+    if (eq) {
+        size_t n = (size_t)(eq - name);
+        if (n >= sizeof(namebuf)) n = sizeof(namebuf)-1;
+        memcpy(namebuf, name, n);
+        namebuf[n] = 0;
+        name = namebuf;
+        valstr = eq + 1;
+    }
+
+    uint16_t v = 0;
+    if (!parse_u16(valstr, &v)) {
+        fprintf(stderr, "set: bad value: %s\n", valstr);
+        return 1;
+    }
+
+    if (!strcmp(name, "cs")) { vm->cpu.cs = v; return 0; }
+    if (!strcmp(name, "ip")) { vm->cpu.ip = v; return 0; }
+    if (!strcmp(name, "ds")) { vm->cpu.ds = v; return 0; }
+    if (!strcmp(name, "es")) { vm->cpu.es = v; return 0; }
+    if (!strcmp(name, "ss")) { vm->cpu.ss = v; return 0; }
+    if (!strcmp(name, "sp")) { vm->cpu.sp = v; return 0; }
+
+    fprintf(stderr, "set: unknown field: %s\n", name);
+    return 1;
+}
+
 
     if (!strcmp(cmd, "help") || !strcmp(cmd, "?")) {
         print_help();
@@ -418,22 +529,6 @@ static int exec_line(repl_state_t *s, const char *line_in, int depth) {
 
 		dump_bytes(&s->cpu, seg, off, count);
 		return 0;
-	}
-
-	if (!strcmp(cmd, "set")) {
-		// Accept: set cpu debug=all  (SIMH-ish)
-		if (argc >= 3 && !strcmp(argv[1], "cpu")) {
-			if (!strcmp(argv[2], "debug=all") || !strcmp(argv[2], "debug=on")) {
-				s->trace = true;
-				return 0;
-			}
-			if (!strcmp(argv[2], "debug=off")) {
-				s->trace = false;
-				return 0;
-			}
-		}
-		fprintf(stderr, "usage: set cpu debug=all|off\n");
-		return 1;
 	}
 
     if (!strcmp(cmd, "version")) {
@@ -509,36 +604,6 @@ static int exec_line(repl_state_t *s, const char *line_in, int depth) {
         return 0;
     }
 
-    if (!strcmp(cmd, "loadbin")) {
-        if (argc < 2) {
-            fprintf(stderr, "usage: loadbin <file> [addr] [cs:ip]\n");
-            return 1;
-        }
-        const char *path = argv[1];
-        uint32_t addr = (argc >= 3) ? (uint32_t)strtoul(argv[2], NULL, 0) : 0x1000;
-        uint16_t cs = 0x0000, ip = (uint16_t)addr;
-
-        if (argc >= 4) {
-            unsigned seg = 0, off = 0;
-            if (sscanf(argv[3], "%x:%x", &seg, &off) == 2) {
-                cs = (uint16_t)seg;
-                ip = (uint16_t)off;
-            } else {
-                fprintf(stderr, "loadbin: expected cs:ip\n");
-                return 1;
-            }
-        }
-
-        int rc = load_file_to_mem(s->mem, s->mem_size, path, addr);
-        if (rc != 0) {
-            fprintf(stderr, "loadbin: failed to load '%s' (rc=%d)\n", path, rc);
-            return 1;
-        }
-        reset_cpu(s, cs, ip);
-        printf("loaded '%s' at 0x%x, CS:IP=%04x:%04x\n", path, addr, cs, ip);
-        return 0;
-    }
-
     if (!strcmp(cmd, "boot")) {
         const char *img = (argc >= 2) ? argv[1] : s->img_path;
 
@@ -555,45 +620,6 @@ static int exec_line(repl_state_t *s, const char *line_in, int depth) {
         fprintf(stderr, "boot: failed to read boot sector from '%s'\n", img);
         return 1;
     }
-
-	if (!strcmp(cmd, "set")) {
-		if (argc < 3) {
-			fprintf(stderr, "usage: set <cs|ip|ds|es|ss|sp> <value>\n");
-			fprintf(stderr, "   or: set <name>=<value>\n");
-			return 1;
-		}
-
-		const char *name = argv[1];
-		const char *valstr = argv[2];
-
-		// support: set cs=1234 (i.e., argv[1] contains '=')
-		const char *eq = strchr(name, '=');
-		char namebuf[32];
-		if (eq) {
-			size_t n = (size_t)(eq - name);
-			if (n >= sizeof(namebuf)) n = sizeof(namebuf)-1;
-			memcpy(namebuf, name, n);
-			namebuf[n] = 0;
-			name = namebuf;
-			valstr = eq + 1;
-		}
-
-		uint16_t v = 0;
-		if (!parse_u16(valstr, &v)) {
-			fprintf(stderr, "set: bad value: %s\n", valstr);
-			return 1;
-		}
-
-		if (!strcmp(name, "cs")) { s->cpu.cs = v; return 0; }
-		if (!strcmp(name, "ip")) { s->cpu.ip = v; return 0; }
-		if (!strcmp(name, "ds")) { s->cpu.ds = v; return 0; }
-		if (!strcmp(name, "es")) { s->cpu.es = v; return 0; }
-		if (!strcmp(name, "ss")) { s->cpu.ss = v; return 0; }
-		if (!strcmp(name, "sp")) { s->cpu.sp = v; return 0; }
-
-		fprintf(stderr, "set: unknown field: %s\n", name);
-		return 1;
-	}
 
     if (!strcmp(cmd, "step")) {
         uint32_t n = (argc >= 2) ? (uint32_t)strtoul(argv[1], NULL, 0) : 1u;
@@ -621,22 +647,11 @@ static int exec_line(repl_state_t *s, const char *line_in, int depth) {
     return 1;
 }
 
-int x64_repl_run(void) {
+int repl_run(void) {
     repl_state_t s;
     memset(&s, 0, sizeof(s));
-
-    // 1MB conventional to start
-    s.mem_size = 1024 * 1024;
-    s.mem = (uint8_t*)calloc(1, s.mem_size);
-    if (!s.mem) return 1;
-
-    strncpy(s.img_path, "floopy.img", sizeof(s.img_path) - 1);
-    s.default_max_steps = 100000;
-    s.trace = true; // automatic logging by default (you asked for this)
-
-    x86_init(&s.cpu, s.mem, s.mem_size);
-    s.cpu.cs = 0x0000;
-    s.cpu.ip = 0x1000;
+	
+	vmman_init(&g_vmman);
 
     char line[1024];
     for (;;) {
@@ -653,7 +668,5 @@ int x64_repl_run(void) {
         if (rc == 99) break;
     }
 
-    if (s.log) fclose(s.log);
-    free(s.mem);
     return 0;
 }

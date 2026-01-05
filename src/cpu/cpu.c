@@ -23,7 +23,7 @@ uint32_t x86_linear_addr(uint16_t seg, uint16_t off) {
     return ((uint32_t)seg << 4) + (uint32_t)off;
 }
 
-static uint8_t *reg8_by_index(x86_cpu_t *c, unsigned idx) {
+uint8_t *reg8_by_index(x86_cpu_t *c, unsigned idx) {
     // idx: 0=AL 1=CL 2=DL 3=BL 4=AH 5=CH 6=DH 7=BH
     switch (idx & 7u) {
         case 0: return (uint8_t *)&c->ax;           // AL
@@ -38,7 +38,7 @@ static uint8_t *reg8_by_index(x86_cpu_t *c, unsigned idx) {
     return (uint8_t *)&c->ax;
 }
 
-static uint16_t* reg16_by_index(x86_cpu_t *c, unsigned idx) {
+uint16_t* reg16_by_index(x86_cpu_t *c, unsigned idx) {
     // idx from opcode B8+rw: 0=AX,1=CX,2=DX,3=BX,4=SP,5=BP,6=SI,7=DI
     switch (idx & 7u) {
         case 0: return &c->ax;
@@ -54,14 +54,14 @@ static uint16_t* reg16_by_index(x86_cpu_t *c, unsigned idx) {
 }
 
 // 8086-style push: SP -= 2; [SS:SP] = val
-static bool push16(x86_cpu_t *c, uint16_t val) {
+bool push16(x86_cpu_t *c, uint16_t val) {
     c->sp = (uint16_t)(c->sp - 2);
     uint32_t a = x86_linear_addr(c->ss, c->sp);
     return mem_write16(c, a, val);
 }
 
 // 8086-style pop: val = [SS:SP]; SP += 2
-static bool pop16(x86_cpu_t *c, uint16_t *out) {
+bool pop16(x86_cpu_t *c, uint16_t *out) {
     uint32_t a = x86_linear_addr(c->ss, c->sp);
     if (!mem_read16(c, a, out)) return false;
     c->sp = (uint16_t)(c->sp + 2);
