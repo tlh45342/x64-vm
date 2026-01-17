@@ -1,10 +1,32 @@
 // src/cpu/cpu.c
 
+/*
+ * Copyright 2025 Thomas L Hamilton
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
 
 #include "cpu.h"
+
+// --------------------------
+
+static uint16_t *reg16_by_index(x86_cpu_t *c, unsigned idx);
+
+// -------------------------
 
 void x86_init(x86_cpu_t *c, uint8_t *mem, size_t mem_size) {
     *c = (x86_cpu_t){0};
@@ -15,27 +37,6 @@ void x86_init(x86_cpu_t *c, uint8_t *mem, size_t mem_size) {
     c->ss = 0x0000;
     c->sp = 0xFFFE;
     c->flags = 0x0002; // bit 1 is typically always set on 8086/real-mode-ish
-}
-
-uint32_t x86_linear_addr(uint16_t seg, uint16_t off) {
-    // Real-mode physical address = seg*16 + off
-    // (A20 wrap behavior can be added later)
-    return ((uint32_t)seg << 4) + (uint32_t)off;
-}
-
-uint8_t *reg8_by_index(x86_cpu_t *c, unsigned idx) {
-    // idx: 0=AL 1=CL 2=DL 3=BL 4=AH 5=CH 6=DH 7=BH
-    switch (idx & 7u) {
-        case 0: return (uint8_t *)&c->ax;           // AL
-        case 1: return (uint8_t *)&c->cx;           // CL
-        case 2: return (uint8_t *)&c->dx;           // DL
-        case 3: return (uint8_t *)&c->bx;           // BL
-        case 4: return ((uint8_t *)&c->ax) + 1;     // AH
-        case 5: return ((uint8_t *)&c->cx) + 1;     // CH
-        case 6: return ((uint8_t *)&c->dx) + 1;     // DH
-        case 7: return ((uint8_t *)&c->bx) + 1;     // BH
-    }
-    return (uint8_t *)&c->ax;
 }
 
 uint16_t* reg16_by_index(x86_cpu_t *c, unsigned idx) {
@@ -53,17 +54,54 @@ uint16_t* reg16_by_index(x86_cpu_t *c, unsigned idx) {
     }
 }
 
-// 8086-style push: SP -= 2; [SS:SP] = val
-bool push16(x86_cpu_t *c, uint16_t val) {
-    c->sp = (uint16_t)(c->sp - 2);
-    uint32_t a = x86_linear_addr(c->ss, c->sp);
-    return mem_write16(c, a, val);
+/* =======================
+ * exec_ctx helper layer
+ * ======================= */
+
+bool x86_fetch8(exec_ctx_t *e, uint8_t *out)
+{
+    uint32_t a = x86_linear_addr(e->cpu->cs, e->cpu->ip);
+    if (!mem_read8(e->cpu, a, out)) return false;
+    e->cpu->ip++;
+    return true;
 }
 
-// 8086-style pop: val = [SS:SP]; SP += 2
-bool pop16(x86_cpu_t *c, uint16_t *out) {
-    uint32_t a = x86_linear_addr(c->ss, c->sp);
-    if (!mem_read16(c, a, out)) return false;
-    c->sp = (uint16_t)(c->sp + 2);
+bool x86_fetch16(exec_ctx_t *e, uint16_t *out)
+{
+    uint32_t a = x86_linear_addr(e->cpu->cs, e->cpu->ip);
+    if (!mem_read16(e->cpu, a, out)) return false;
+    e->cpu->ip = (uint16_t)(e->cpu->ip + 2);
     return true;
+}
+
+uint16_t *x86_reg16(exec_ctx_t *e, unsigned reg)
+{
+    return reg16_by_index(e->cpu, reg);
+}
+
+bool x86_read16(exec_ctx_t *e, uint16_t seg, uint16_t off, uint16_t *out)
+{
+    uint32_t a = x86_linear_addr(seg, off);
+    return mem_read16(e->cpu, a, out);
+}
+
+bool x86_write16(exec_ctx_t *e, uint16_t seg, uint16_t off, uint16_t val)
+{
+    uint32_t a = x86_linear_addr(seg, off);
+    return mem_write16(e->cpu, a, val);
+}
+
+void x86_set_cf(exec_ctx_t *e, bool v)
+{
+    if (v) e->cpu->flags |= X86_FL_CF;
+    else   e->cpu->flags &= ~X86_FL_CF;
+}
+
+void x86_set_zf_sf16(exec_ctx_t *e, uint16_t r)
+{
+    if (r == 0) e->cpu->flags |= X86_FL_ZF;
+    else        e->cpu->flags &= ~X86_FL_ZF;
+
+    if (r & 0x8000u) e->cpu->flags |= X86_FL_SF;
+    else             e->cpu->flags &= ~X86_FL_SF;
 }

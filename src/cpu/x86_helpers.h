@@ -1,4 +1,4 @@
-//  src/cpu/logic.h
+// src/cpu/x86_helpers.h
 
 /*
  * Copyright 2025 Thomas L Hamilton
@@ -15,10 +15,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 #pragma once
+#include <stdint.h>
+#include <stdbool.h>
 
 #include "exec_ctx.h"
 
-x86_status_t handle_grp1_83(exec_ctx_t *e);
-x86_status_t op_mov_r16_imm16(exec_ctx_t *e);
+/* instruction fetch */
+bool x86_fetch8(exec_ctx_t *e, uint8_t *out);
+bool x86_fetch16(exec_ctx_t *e, uint16_t *out);
+
+/* register / EA helpers */
+uint16_t *x86_reg16(exec_ctx_t *e, unsigned reg);
+bool x86_ea16(exec_ctx_t *e, uint8_t modrm, uint16_t *off, uint16_t *seg);
+
+/* memory helpers */
+bool x86_read16(exec_ctx_t *e, uint16_t seg, uint16_t off, uint16_t *out);
+bool x86_write16(exec_ctx_t *e, uint16_t seg, uint16_t off, uint16_t val);
+
+/* flag helpers */
+void x86_set_cf(exec_ctx_t *e, bool v);
+void x86_set_zf_sf16(exec_ctx_t *e, uint16_t v);

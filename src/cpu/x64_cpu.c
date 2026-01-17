@@ -1,17 +1,35 @@
 // src/x64_cpu.c
 
+/*
+ * Copyright 2025 Thomas L Hamilton
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdio.h>
 
 #include "x64_cpu.h"
+#include "cpu.h"
+#include "cpu_system.h"
+#include "execute.h"
+
 // NOTE: exec_ctx.h / logic.h were previously included for an external handler path,
 // but this file currently implements decode/execute inline. Keeping those headers
 // caused signature mismatches and/or unused-context churn, so they are intentionally
 // not included here.
-
-#include "cpu_system.h"
 
 typedef struct x86_decoded {
     x86_cpu_t *c;
@@ -40,12 +58,6 @@ typedef struct x86_opent {
     uint8_t imm_bytes;   // 0,1,2,4
     uint8_t flags;       // future: needs_modrm, etc.
 } x86_opent_t;
-
-
-// forward declarations
-static bool fetch8(x86_cpu_t *c, uint8_t *out);
-static bool fetch16(x86_cpu_t *c, uint16_t *out);
-static uint16_t get_sreg(x86_cpu_t *c, unsigned s) __attribute__((unused));
 
 static inline uint32_t rm_phys16(uint16_t seg, uint16_t off) {
     return ((uint32_t)seg << 4) + off;
@@ -102,8 +114,12 @@ x86_status_t x86_step(x86_cpu_t *c) {
 
 	trace_fetch_win(c);
 
+    exec_ctx_t e = {
+        .cpu = c,
+    };
 
-    fprintf(stderr, "x86_step: unhandled opcode 0x%02X at CS:IP %04x:%04x\n",
-            op, c->cs, (uint16_t)(c->ip - 1));
-    return X86_ERR;
+//    fprintf(stderr, "x86_step: unhandled opcode 0x%02X at CS:IP %04x:%04x\n",
+//            op, c->cs, (uint16_t)(c->ip - 1));
+
+    return cpu_execute(&e);
 }

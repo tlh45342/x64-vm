@@ -1,7 +1,7 @@
-// src/version.h
+// src/repl.h
 
 /*
- * Copyright 2025 Thomas L Hamilton
+ * Copyright © 2025-2026 Thomas L Hamilton
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,4 +18,9 @@
 
 #pragma once
 
-#define X64VM_VERSION "0.0.6"
+#include "session.h"
+
+typedef struct repl_state repl_state_t;
+
+int repl(Session *sess);
+int exec_line(repl_state_t *s, const char *line_in, int depth);

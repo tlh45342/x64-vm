@@ -1,7 +1,11 @@
 
 src/main.c
 
-src/vm.c
+src/cli/session.c
+
+src/cli/repl.c
+
+src/vm/vm.c
 
 src/cpu/execute.c
 
@@ -10,3 +14,7 @@ src/cpu/cpu.c
 src/cpu/table.c
 
 src/cpu/logic.c
+
+src/cpu/fetch.c
+
+src/cpu/interrupt.c

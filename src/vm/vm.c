@@ -1,7 +1,7 @@
-// src/vm.c
+// src/vm/vm.c
 
 /*
- * Copyright 2025 Thomas L Hamilton
+ * Copyright 2025-2026 Thomas L Hamilton
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,10 @@
  * limitations under the License.
  */
 
-#include "vm.h"
+#include "vm/vm.h"
+#include "cpu/disasm.h"
+#include "util/log.h"
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -48,9 +51,15 @@ int vm_create_default(VMManager *m, size_t ram_bytes, const char *name) {
 
     if (name && *name) {
         strncpy(v->name, name, sizeof(v->name) - 1);
+        v->name[sizeof(v->name) - 1] = '\0';
     } else {
         snprintf(v->name, sizeof(v->name), "vm%d", id);
     }
+
+    /* trace/log defaults */
+    v->trace.enabled = false;
+    v->trace.flags   = 0;
+    v->log           = NULL;
 
     v->mem = (uint8_t*)calloc(1, ram_bytes);
     if (!v->mem) {
@@ -62,11 +71,11 @@ int vm_create_default(VMManager *m, size_t ram_bytes, const char *name) {
     x86_init(&v->cpu, v->mem, v->mem_size);
     v->cpu_inited = true;
 
-    // default start (you can change later)
+    /* default start (you can change later) */
     v->cpu.cs = 0x0000;
     v->cpu.ip = 0x1000;
 
-    // auto-select created VM
+    /* auto-select created VM */
     m->current = id;
     return id;
 }
@@ -113,4 +122,43 @@ void vm_list(VMManager *m) {
                (m->current == i) ? '*' : ' ',
                i, v->name, v->mem_size);
     }
+}
+
+x86_status_t vm_step(VM *vm) {
+    if (!vm) return X86_HALT; /* or whatever "bad" status you prefer */
+    x86_cpu_t *c = &vm->cpu;
+
+    /* ---- TRACE PRE ---- */
+    if (vm->trace.enabled && vm->log) {
+        uint32_t lin = ((uint32_t)c->cs << 4) + c->ip;
+
+        char bytes[3 * 16 + 1];
+        size_t n = 0;
+        for (unsigned i = 0; i < 16 && (size_t)(lin + i) < vm->mem_size; i++) {
+            n += (size_t)snprintf(bytes + n, sizeof(bytes) - n,
+                                  "%02X ", vm->mem[lin + i]);
+            if (n >= sizeof(bytes)) break;
+        }
+        if (n) bytes[(n - 1 < sizeof(bytes)) ? (n - 1) : (sizeof(bytes) - 1)] = 0;
+
+        x86_disasm_t d = x86_disasm_one_16(vm->mem, vm->mem_size, lin);
+
+        log_printf(vm->log, LOG_TRACE, "dis",
+                   "%04X:%04X  %-47s  %s\n",
+                   c->cs, c->ip, bytes, d.text);
+    }
+
+    /* ---- EXECUTE ---- */
+    x86_status_t st = x86_step(c);
+
+    /* ---- TRACE POST ---- */
+    if (vm->trace.enabled && vm->log) {
+        log_printf(vm->log, LOG_TRACE, "cpu",
+                   "AX=%04X BX=%04X CX=%04X DX=%04X "
+                   "CS:IP=%04X:%04X FLAGS=%04X\n",
+                   c->ax, c->bx, c->cx, c->dx,
+                   c->cs, c->ip, c->flags);
+    }
+
+    return st;
 }

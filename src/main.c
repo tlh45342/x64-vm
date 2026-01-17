@@ -1,7 +1,7 @@
 // src/main.c
 
 /*
- * Copyright 2025 Thomas L Hamilton
+ * Copyright © 2025–2026 Thomas L Hamilton
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,11 +20,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "session.h"
 #include "repl.h"
 
- int main(int argc, char **argv) {
-    (void)argc;
-    (void)argv;
-    repl_run();
-    return 0;
+int main(int argc, char **argv) {
+  (void)argc; (void)argv;
+  Session s;
+  session_init(&s);
+  repl(&s);
+  session_shutdown(&s);
+  return 0;
 }

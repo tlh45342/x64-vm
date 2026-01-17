@@ -1,4 +1,4 @@
-// src/repl.h
+// src/cpu/decode.h
 
 /*
  * Copyright 2025 Thomas L Hamilton
@@ -16,4 +16,10 @@
  * limitations under the License.
  */
 
-int repl_run(void);
+#pragma once
+
+#include <stdint.h>
+#include <stdbool.h>
+
+bool fetch8 (x86_cpu_t *c, uint8_t  *out);
+bool fetch16(x86_cpu_t *c, uint16_t *out);

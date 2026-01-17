@@ -1,7 +1,7 @@
-//  src/cpu/logic.h
+// src/version.h
 
 /*
- * Copyright 2025 Thomas L Hamilton
+ * Copyright © 2025–2026 Thomas L Hamilton
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,4 @@
 
 #pragma once
 
-#include "exec_ctx.h"
-
-x86_status_t handle_grp1_83(exec_ctx_t *e);
-x86_status_t op_mov_r16_imm16(exec_ctx_t *e);
+#define VERSION "0.0.10"
