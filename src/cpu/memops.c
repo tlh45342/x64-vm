@@ -1,4 +1,4 @@
-// src/cpu/fetch.c
+// src/cpu/memops.c
 
 /*
  * Copyright 2026 Thomas L Hamilton
@@ -16,32 +16,47 @@
  * limitations under the License.
  */
 
-#include "cpu/fetch.h"
 #include <stdbool.h>
 #include <stdint.h>
 
-bool fetch8(x86_cpu_t *c, uint8_t *out) {
+#include "cpu/memops.h"
+#include "vm/vm.h"
+#include "cpu/x86_cpu.h"
+
+bool x86_fetch8(exec_ctx_t *e, uint8_t *out)
+{
+    x86_cpu_t *c = e->cpu;
     uint32_t a = x86_linear_addr(c->cs, c->ip);
-    if (!mem_read8(c, a, out)) return false;
+
+    if (!e->vm) return false;
+    if (!vm_read8(e->vm, a, out)) return false;
+
     c->ip++;
     return true;
 }
 
-// 8086-style push: SP -= 2; [SS:SP] = val
-bool push16(x86_cpu_t *c, uint16_t val) {
-    c->sp = (uint16_t)(c->sp - 2);
-    uint32_t a = x86_linear_addr(c->ss, c->sp);
-    return mem_write16(c, a, val);
-}
-
-bool fetch16(x86_cpu_t *c, uint16_t *out) {
+bool x86_fetch16(exec_ctx_t *e, uint16_t *out)
+{
+    x86_cpu_t *c = e->cpu;
     uint32_t a = x86_linear_addr(c->cs, c->ip);
-    if (!mem_read16(c, a, out)) return false;
+
+    if (!e->vm) return false;
+    if (!vm_read16(e->vm, a, out)) return false;
+
     c->ip = (uint16_t)(c->ip + 2);
     return true;
 }
 
-uint32_t x86_linear_addr(uint16_t seg, uint16_t off)
+// 8086-style push: SP -= 2; [SS:SP] = val
+bool x86_push16(exec_ctx_t *e, uint16_t val)
 {
-    return ((uint32_t)seg << 4) + (uint32_t)off;
+    x86_cpu_t *c = e->cpu;
+
+    if (!e->vm) return false;
+
+    c->sp = (uint16_t)(c->sp - 2);
+    uint32_t a = x86_linear_addr(c->ss, c->sp);
+
+    return vm_write16(e->vm, a, val);
 }
+

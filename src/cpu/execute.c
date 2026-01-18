@@ -19,7 +19,7 @@
 #include "cpu_types.h"
 #include "exec_ctx.h"
 #include "execute.h"
-#include "cpu.h"
+#include "x86_cpu.h"
 #include "cpu/disasm.h"
 #include "util/log.h"
 

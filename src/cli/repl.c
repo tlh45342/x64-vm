@@ -24,37 +24,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "repl.h"
+#include "vm/vm.h"
+#include "cli/repl.h"
 #include "version.h"
-
-// IMPORTANT: after moving CPU into src/cpu, include it via this path.
-// Ensure Makefile has: CFLAGS += -Isrc -Isrc/cpu
-#include "cpu/x64_cpu.h"   // x86_cpu_t, x86_init, x86_step, x86_status_t, X86_OK, etc.
-
-/* -----------------------------------------------------------------------------
-   VM registry (minimal)
------------------------------------------------------------------------------ */
-
-#ifndef VM_MAX
-#define VM_MAX 8
-#endif
-
-typedef struct VM {
-    bool in_use;
-    int  id;
-    char name[32];
-
-    uint8_t *mem;
-    size_t   mem_size;
-
-    x86_cpu_t cpu;
-    bool cpu_inited;
-} VM;
-
-typedef struct VMManager {
-    VM vms[VM_MAX];
-    int current; // -1 if none
-} VMManager;
+#include "cpu/x86_cpu.h"   // x86_cpu_t, x86_init, x86_step, x86_status_t, X86_OK, etc.
+#include "cpu/exec_ctx.h"
 
 /* -----------------------------------------------------------------------------
    REPL state
@@ -69,7 +43,6 @@ struct repl_state {
     bool trace;
     FILE *log;
 };
-
 
 // forward decalares
 static int cmd_examine(VM *vm, uint16_t seg, uint16_t off, size_t count);
@@ -175,94 +148,8 @@ static size_t parse_memsize(const char *s, int *ok) {
 }
 
 /* -----------------------------------------------------------------------------
-   VM manager impl
+   VM ensure - local
 ----------------------------------------------------------------------------- */
-
-static void vmman_init(VMManager *m) {
-    memset(m, 0, sizeof(*m));
-    m->current = -1;
-    for (int i = 0; i < VM_MAX; i++) {
-        m->vms[i].id = i;
-        m->vms[i].in_use = false;
-    }
-}
-
-static VM *vm_get(VMManager *m, int id) {
-    if (id < 0 || id >= VM_MAX) return NULL;
-    if (!m->vms[id].in_use) return NULL;
-    return &m->vms[id];
-}
-
-static VM *vm_current(VMManager *m) {
-    return vm_get(m, m->current);
-}
-
-static int vm_create_default(VMManager *m, size_t ram_bytes, const char *name) {
-    int id = -1;
-    for (int i = 0; i < VM_MAX; i++) {
-        if (!m->vms[i].in_use) { id = i; break; }
-    }
-    if (id < 0) return -1;
-
-    VM *v = &m->vms[id];
-    memset(v, 0, sizeof(*v));
-    v->id = id;
-    v->in_use = true;
-
-    if (name && *name) {
-        strncpy(v->name, name, sizeof(v->name)-1);
-    } else {
-        snprintf(v->name, sizeof(v->name), "vm%d", id);
-    }
-
-    v->mem = (uint8_t*)calloc(1, ram_bytes);
-    if (!v->mem) {
-        v->in_use = false;
-        return -1;
-    }
-    v->mem_size = ram_bytes;
-
-    x86_init(&v->cpu, v->mem, v->mem_size);
-    v->cpu_inited = true;
-
-    // default start (you can change via set CS/IP)
-    v->cpu.cs = 0x0000;
-    v->cpu.ip = 0x1000;
-
-    m->current = id;
-    return id;
-}
-
-static bool vm_use(VMManager *m, int id) {
-    VM *v = vm_get(m, id);
-    if (!v) return false;
-    m->current = id;
-    return true;
-}
-
-static bool vm_destroy(VMManager *m, int id) {
-    VM *v = vm_get(m, id);
-    if (!v) return false;
-    free(v->mem);
-    v->mem = NULL;
-    v->mem_size = 0;
-    v->cpu_inited = false;
-    v->in_use = false;
-    v->name[0] = 0;
-    if (m->current == id) m->current = -1;
-    return true;
-}
-
-static void vm_list(VMManager *m) {
-    printf("VMs:\n");
-    for (int i = 0; i < VM_MAX; i++) {
-        VM *v = &m->vms[i];
-        if (!v->in_use) continue;
-        printf("  %c id=%d name=%s ram=%zu\n",
-               (m->current == i) ? '*' : ' ',
-               v->id, v->name, v->mem_size);
-    }
-}
 
 /* Compatibility mode: auto-create default vm on first CPU/mem command */
 static VM *ensure_vm(repl_state_t *s) {
@@ -328,7 +215,10 @@ static x86_status_t step_one_vm(repl_state_t *s, VM *vm) {
         fprintf(s->log, "%04X:%04X  %02X\n", vm->cpu.cs, vm->cpu.ip, op);
         fflush(s->log);
     }
-    return x86_step(&vm->cpu);
+	exec_ctx_t e = {0};
+	e.cpu = &vm->cpu;
+	e.vm  = vm;          // gives fetch/memops access to VM-backed memory
+	return x86_step(&e);
 }
 
 static int run_steps_vm(repl_state_t *s, VM *vm, uint32_t max_steps) {

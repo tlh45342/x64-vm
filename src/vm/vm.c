@@ -19,6 +19,9 @@
 #include "vm/vm.h"
 #include "cpu/disasm.h"
 #include "util/log.h"
+#include "cpu/exec_ctx.h"
+#include "cpu/x86_cpu.h"
+#include "cpu/execute.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -149,7 +152,8 @@ x86_status_t vm_step(VM *vm) {
     }
 
     /* ---- EXECUTE ---- */
-    x86_status_t st = x86_step(c);
+	exec_ctx_t e = { .cpu = &vm->cpu, .vm = vm };
+	x86_status_t st = x86_step(&e);
 
     /* ---- TRACE POST ---- */
     if (vm->trace.enabled && vm->log) {
@@ -161,4 +165,37 @@ x86_status_t vm_step(VM *vm) {
     }
 
     return st;
+}
+
+bool vm_read8(VM *vm, uint32_t a, uint8_t *out)
+{
+    if (!vm || !out) return false;
+    if (a >= (uint32_t)vm->mem_size) return false;
+    *out = vm->mem[a];
+    return true;
+}
+
+bool vm_read16(VM *vm, uint32_t a, uint16_t *out)
+{
+    if (!vm || !out) return false;
+    if (a + 1u >= (uint32_t)vm->mem_size) return false;
+    *out = (uint16_t)(vm->mem[a] | (vm->mem[a + 1u] << 8));
+    return true;
+}
+
+bool vm_write8(VM *vm, uint32_t a, uint8_t v)
+{
+    if (!vm) return false;
+    if (a >= (uint32_t)vm->mem_size) return false;
+    vm->mem[a] = v;
+    return true;
+}
+
+bool vm_write16(VM *vm, uint32_t a, uint16_t v)
+{
+    if (!vm) return false;
+    if (a + 1u >= (uint32_t)vm->mem_size) return false;
+    vm->mem[a]     = (uint8_t)(v & 0xFF);
+    vm->mem[a + 1] = (uint8_t)((v >> 8) & 0xFF);
+    return true;
 }

@@ -21,7 +21,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#include "cpu/cpu.h"   // x86_cpu_t, x86_status_t
+#include "cpu/x86_cpu.h"   // x86_cpu_t, x86_status_t
 
 #ifndef VM_MAX
 #define VM_MAX 8
@@ -65,6 +65,10 @@ bool  vm_use(VMManager *m, int id);
 VM   *vm_get(VMManager *m, int id);
 VM   *vm_current(VMManager *m);
 void  vm_list(VMManager *m);
+bool  vm_read8 (VM *vm, uint32_t addr, uint8_t *out);
+bool  vm_read16(VM *vm, uint32_t addr, uint16_t *out);
+bool  vm_write8 (VM *vm, uint32_t addr, uint8_t val);
+bool  vm_write16(VM *vm, uint32_t addr, uint16_t val);
 
 /* Execute one instruction on the given VM */
 x86_status_t vm_step(VM *vm);

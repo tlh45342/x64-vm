@@ -19,8 +19,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "logic.h"
-#include "cpu.h"
+#include "cpu/logic.h"
+#include "cpu/x86_cpu.h"
+#include "cpu/memops.h"
 
 /* ============================================================
  * Local flag helpers

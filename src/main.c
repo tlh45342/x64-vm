@@ -20,8 +20,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "session.h"
-#include "repl.h"
+#include "cli/session.h"
+#include "cli/repl.h"
 
 int main(int argc, char **argv) {
   (void)argc; (void)argv;

@@ -1,7 +1,7 @@
-// src/cpu/cpu.c
+// src/cpu/x86_cpu.c
 
 /*
- * Copyright 2025 Thomas L Hamilton
+ * Copyright 2026 Thomas L Hamilton
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,29 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#include "cpu.h"
+#include "x86_cpu.h"
+#include "exec_ctx.h"
+#include "execute.h"
+
+typedef struct x86_decoded {
+    x86_cpu_t *c;
+
+    uint16_t start_cs;
+    uint16_t start_ip;
+
+    // prefixes (start small)
+    bool rep;          // F3
+
+    // opcode
+    uint8_t op;
+
+    // decoded fields (for now)
+    uint8_t reg;       // generic reg field used by some ops
+    uint16_t imm16;
+
+    // length bookkeeping (optional now, useful soon)
+    uint8_t ilen;
+} x86_decoded_t;
 
 // --------------------------
 
@@ -58,37 +80,9 @@ uint16_t* reg16_by_index(x86_cpu_t *c, unsigned idx) {
  * exec_ctx helper layer
  * ======================= */
 
-bool x86_fetch8(exec_ctx_t *e, uint8_t *out)
-{
-    uint32_t a = x86_linear_addr(e->cpu->cs, e->cpu->ip);
-    if (!mem_read8(e->cpu, a, out)) return false;
-    e->cpu->ip++;
-    return true;
-}
-
-bool x86_fetch16(exec_ctx_t *e, uint16_t *out)
-{
-    uint32_t a = x86_linear_addr(e->cpu->cs, e->cpu->ip);
-    if (!mem_read16(e->cpu, a, out)) return false;
-    e->cpu->ip = (uint16_t)(e->cpu->ip + 2);
-    return true;
-}
-
 uint16_t *x86_reg16(exec_ctx_t *e, unsigned reg)
 {
     return reg16_by_index(e->cpu, reg);
-}
-
-bool x86_read16(exec_ctx_t *e, uint16_t seg, uint16_t off, uint16_t *out)
-{
-    uint32_t a = x86_linear_addr(seg, off);
-    return mem_read16(e->cpu, a, out);
-}
-
-bool x86_write16(exec_ctx_t *e, uint16_t seg, uint16_t off, uint16_t val)
-{
-    uint32_t a = x86_linear_addr(seg, off);
-    return mem_write16(e->cpu, a, val);
 }
 
 void x86_set_cf(exec_ctx_t *e, bool v)
@@ -105,3 +99,40 @@ void x86_set_zf_sf16(exec_ctx_t *e, uint16_t r)
     if (r & 0x8000u) e->cpu->flags |= X86_FL_SF;
     else             e->cpu->flags &= ~X86_FL_SF;
 }
+
+/* Keep the canonical linear addr helper here unless you move it elsewhere */
+uint32_t x86_linear_addr(uint16_t seg, uint16_t off)
+{
+    return ((uint32_t)seg << 4) + (uint32_t)off;
+}
+
+// NOTE: exec_ctx.h / logic.h were previously included for an external handler path,
+// but this file currently implements decode/execute inline. Keeping those headers
+// caused signature mismatches and/or unused-context churn, so they are intentionally
+// not included here.
+
+
+typedef x86_status_t (*x86_op_fn)(x86_decoded_t *d);
+
+typedef struct x86_opent {
+    x86_op_fn fn;
+    uint8_t imm_bytes;   // 0,1,2,4
+    uint8_t flags;       // future: needs_modrm, etc.
+} x86_opent_t;
+
+static inline uint32_t rm_phys16(uint16_t seg, uint16_t off) {
+    return ((uint32_t)seg << 4) + off;
+}
+
+#ifndef TRACE_WIN_BYTES
+#define TRACE_WIN_BYTES 16   // change to 8 if you want
+#endif
+
+
+x86_status_t x86_step(exec_ctx_t *e)
+{
+    if (!e || !e->cpu) return X86_ERR;
+    if (e->cpu->halted) return X86_HALT;
+    return cpu_execute(e);
+}
+

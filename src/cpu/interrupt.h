@@ -20,9 +20,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "cpu/cpu.h"         // x86_cpu_t
+#include "cpu/x86_cpu.h"     // x86_cpu_t
 #include "cpu/cpu_types.h"   // x86_status_t (or wherever it actually lives)
 
-// Real-mode IVT helper + INT imm8 handler
-bool ivt_get_vector(x86_cpu_t *c, uint8_t n, uint16_t *out_ip, uint16_t *out_cs);
-x86_status_t handle_int_cd(x86_cpu_t *c);
+bool ivt_get_vector(exec_ctx_t *e, uint8_t n, uint16_t *out_ip, uint16_t *out_cs);
+x86_status_t handle_int_cd(exec_ctx_t *e);

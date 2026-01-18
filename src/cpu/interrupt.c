@@ -21,34 +21,45 @@
 #include <inttypes.h>
 #include <string.h>
 
-#include "cpu/fetch.h"
-#include "interrupt.h"
+#include "cpu/interrupt.h"
+#include "cpu/memops.h"
+#include "vm/vm.h"
+#include "cpu/x86_cpu.h"
 
 // IVT entry n at physical 0x0000: (offset @ 4n, segment @ 4n+2)
-bool ivt_get_vector(x86_cpu_t *c, uint8_t n, uint16_t *out_ip, uint16_t *out_cs) {
+bool ivt_get_vector(exec_ctx_t *e, uint8_t n, uint16_t *out_ip, uint16_t *out_cs)
+{
+    if (!e || !e->vm) return false;
+
     uint32_t base = (uint32_t)n * 4u;
     uint16_t ip, cs;
-    if (!mem_read16(c, base + 0, &ip)) return false;
-    if (!mem_read16(c, base + 2, &cs)) return false;
+
+    if (!vm_read16(e->vm, base + 0, &ip)) return false;
+    if (!vm_read16(e->vm, base + 2, &cs)) return false;
+
     *out_ip = ip;
     *out_cs = cs;
     return true;
 }
 
-x86_status_t handle_int_cd(x86_cpu_t *c) {
+x86_status_t handle_int_cd(exec_ctx_t *e)
+{
+    x86_cpu_t *c = e->cpu;
+    if (!e || !c || !e->vm) return X86_ERR;
+
     uint8_t n = 0;
-    if (!fetch8(c, &n)) return X86_ERR;
+    if (!x86_fetch8(e, &n)) return X86_ERR;
 
     // Push FLAGS, CS, IP (IP already points to next instruction after imm8)
-    if (!push16(c, c->flags)) return X86_ERR;
-    if (!push16(c, c->cs))    return X86_ERR;
-    if (!push16(c, c->ip))    return X86_ERR;
+    if (!x86_push16(e, c->flags)) return X86_ERR;
+    if (!x86_push16(e, c->cs))    return X86_ERR;
+    if (!x86_push16(e, c->ip))    return X86_ERR;
 
     // Clear IF and TF (bits 9 and 8)
     c->flags = (uint16_t)(c->flags & ~(uint16_t)0x0300u);
 
     uint16_t new_ip = 0, new_cs = 0;
-    if (!ivt_get_vector(c, n, &new_ip, &new_cs)) return X86_ERR;
+    if (!ivt_get_vector(e, n, &new_ip, &new_cs)) return X86_ERR;
 
     c->cs = new_cs;
     c->ip = new_ip;

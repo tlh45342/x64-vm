@@ -1,4 +1,4 @@
-// src/cpu/fetch.h
+// src/cpu/memops.h
 
 /*
  * Copyright 2026 Thomas L Hamilton
@@ -17,14 +17,14 @@
  */
  
 #pragma once
+
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "cpu/cpu.h"   // x86_cpu_t
+#include "cpu/exec_ctx.h"
 
 // Instruction stream helpers (CS:IP)
-bool fetch8 (x86_cpu_t *c, uint8_t  *out);
-bool fetch16(x86_cpu_t *c, uint16_t *out);
+bool x86_fetch8 (exec_ctx_t *e, uint8_t  *out);
+bool x86_fetch16(exec_ctx_t *e, uint16_t *out);
 
-// Stack helper (SS:SP)
-bool push16(x86_cpu_t *c, uint16_t val);
+bool x86_push16(exec_ctx_t *e, uint16_t val);

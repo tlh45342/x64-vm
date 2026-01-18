@@ -16,18 +16,40 @@
  * limitations under the License.
  */
 
+// --- tiny handlers (keep local) ---
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 
-#include "table.h"
-#include "cpu.h"
-#include "logic.h"
-#include "cpu_types.h"
-#include <stdint.h>
+#include "cpu/table.h"
+#include "cpu/memops.h"
+#include "cpu/x86_cpu.h"
+#include "cpu/logic.h"
+#include "cpu/cpu_types.h"
+#include "cpu/exec_ctx.h"
 
-#include "table.h"
-#include "cpu.h"
-#include "logic.h"
+#include "vm/vm.h"   // vm_read8()
+
+// PEEK a byte at seg:off without advancing IP.
+static bool peek8(exec_ctx_t *e, uint16_t seg, uint16_t off, uint8_t *out)
+{
+    if (!e || !e->cpu || !out) return false;
+
+    const uint32_t lin = x86_linear_addr(seg, off);
+
+    // Preferred path: VM owns memory.
+    if (e->vm) {
+        return vm_read8(e->vm, lin, out);
+    }
+
+    // Fallback: transitional CPU-backed memory.
+    x86_cpu_t *c = e->cpu;
+    if (!c->mem) return false;
+    if (lin >= (uint32_t)c->mem_size) return false;
+
+    *out = c->mem[lin];
+    return true;
+}
 
 // --- tiny handlers (keep local) ---
 
@@ -51,7 +73,7 @@ static x86_status_t op_hlt(exec_ctx_t *e) {
 
 /*
  * Minimal decoder:
- *  - fetch opcode
+ *  - peek opcode (do not advance IP)
  *  - return handler
  */
 x86_fn_t x86_decode_ctx(exec_ctx_t *e)
@@ -59,9 +81,7 @@ x86_fn_t x86_decode_ctx(exec_ctx_t *e)
     uint8_t op = 0;
 
     // PEEK opcode at CS:IP (do NOT advance IP here)
-    uint16_t w = 0;
-    if (!x86_read16(e, e->cpu->cs, e->cpu->ip, &w)) return op_unknown;
-    op = (uint8_t)(w & 0xFF);
+    if (!peek8(e, e->cpu->cs, e->cpu->ip, &op)) return op_unknown;
 
     // Minimal “switch decoder” (good enough until the table is populated)
     if (op == 0x83) return handle_grp1_83;
