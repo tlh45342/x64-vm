@@ -1,9 +1,22 @@
-Version: 0.0.10
+script:mov_ax_imm.script:2> version
+Version: 0.0.13
+script:mov_ax_imm.script:3> vm create
+script:mov_ax_imm.script:4> set cpu debug=all
+script:mov_ax_imm.script:5> load mov_ax_imm.bin 0000:1000
+script:mov_ax_imm.script:6> e 0:1000 32
+script:mov_ax_imm.script:7> set CS 0
+script:mov_ax_imm.script:8> set IP 0x1000
+script:mov_ax_imm.script:9> regs
 AX=0000 BX=0000 CX=0000 DX=0000  SI=0000 DI=0000 BP=0000 SP=FFFE
 CS=0000 IP=1000 DS=0000 ES=0000 SS=0000  FLAGS=0002
+script:mov_ax_imm.script:10> step
 0000:1000  B8
-0000:1002  BE
+script:mov_ax_imm.script:11> step
+0000:1003  F4
+script:mov_ax_imm.script:12> step
 0000:1004  00
-0000:1006  00
-AX=0000 BX=0000 CX=0000 DX=0000  SI=0000 DI=0000 BP=0000 SP=FFFE
-CS=0000 IP=1008 DS=0000 ES=0000 SS=0000  FLAGS=0002
+script:mov_ax_imm.script:13> step
+0000:1005  00
+script:mov_ax_imm.script:14> regs
+AX=BEEF BX=0000 CX=0000 DX=0000  SI=0000 DI=0000 BP=0000 SP=FFFE
+CS=0000 IP=1006 DS=0000 ES=0000 SS=0000  FLAGS=0002

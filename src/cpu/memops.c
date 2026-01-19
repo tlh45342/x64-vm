@@ -18,6 +18,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #include "cpu/memops.h"
 #include "vm/vm.h"
@@ -27,6 +28,8 @@ bool x86_fetch8(exec_ctx_t *e, uint8_t *out)
 {
     x86_cpu_t *c = e->cpu;
     uint32_t a = x86_linear_addr(c->cs, c->ip);
+
+	fprintf(stderr, "FETCH8 %04X:%04X -> %02X\n", e->cpu->cs, e->cpu->ip, *out);
 
     if (!e->vm) return false;
     if (!vm_read8(e->vm, a, out)) return false;

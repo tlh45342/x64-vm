@@ -22,6 +22,7 @@
 #include "cpu/logic.h"
 #include "cpu/x86_cpu.h"
 #include "cpu/memops.h"
+#include "vm/vm.h"
 
 /* ============================================================
  * Local flag helpers
@@ -212,8 +213,47 @@ static x86_status_t handle_cmp_83_7(exec_ctx_t *e, uint8_t modrm)
  * Placeholder op(s) — keep build clean while you wire decode/exec
  * ============================================================ */
 
+/* Helper: write selected r16 by index (0..7) */
+static void set_r16_by_index(x86_cpu_t *c, unsigned reg, uint16_t v)
+{
+    switch (reg & 7u) {
+        case 0: c->ax = v; break;
+        case 1: c->cx = v; break;
+        case 2: c->dx = v; break;
+        case 3: c->bx = v; break;
+        case 4: c->sp = v; break;
+        case 5: c->bp = v; break;
+        case 6: c->si = v; break;
+        case 7: c->di = v; break;
+    }
+}
+
 x86_status_t op_mov_r16_imm16(exec_ctx_t *e)
 {
-    (void)e;
-    return X86_ERR; /* TODO: implement once decode provides reg + imm16 */
+    if (!e || !e->cpu || !e->vm) return X86_ERR;
+
+    x86_cpu_t *c = e->cpu;
+
+    /* We assume cpu_execute already fetched op, but we can re-read it safely.
+       If you have e->op/e->instr byte cached, use that instead. */
+    uint32_t lin = x86_linear_addr(c->cs, c->ip);
+
+    uint8_t op = 0;
+    if (!vm_read8(e->vm, lin + 0, &op)) return X86_FAULT;
+
+    if (op < 0xB8 || op > 0xBF) return X86_ERR; /* sanity */
+
+    uint8_t lo = 0, hi = 0;
+    if (!vm_read8(e->vm, lin + 1, &lo)) return X86_FAULT;
+    if (!vm_read8(e->vm, lin + 2, &hi)) return X86_FAULT;
+
+    uint16_t imm = (uint16_t)(lo | ((uint16_t)hi << 8));
+    unsigned reg = (unsigned)(op & 7u);
+
+    set_r16_by_index(c, reg, imm);
+
+    /* Advance IP by opcode + imm16 */
+    c->ip = (uint16_t)(c->ip + 3);
+
+    return X86_OK;
 }
